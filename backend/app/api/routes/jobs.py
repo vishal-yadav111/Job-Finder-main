@@ -18,6 +18,8 @@ from app.db.models import (
     JobAIResult,
     LinkedinProfile
 )
+import uuid
+from fastapi import HTTPException, status
 
 from app.auth.dependencies import (
     get_current_user_id
@@ -282,6 +284,134 @@ async def update_job(
         raise
     except Exception as e:
         logger.error(f"Error in update_job: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+
+
+
+@router.post("/jobs")
+async def create_job(
+
+    payload: dict,
+
+    user_id: int = Depends(
+        get_current_user_id
+    )
+):
+    try:
+        company = payload.get("company")
+        role = payload.get("role")
+
+        if not company or not role:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="company and role are required")
+
+        job_hash = str(uuid.uuid4())
+
+        recruiter_name = payload.get("recruiter_name")
+        job_link = payload.get("job_link")
+        linkedin_profiles = payload.get("linkedin_profiles") or []
+        referral_message = payload.get("referral_message") or ""
+        status_field = payload.get("status") or "generated_applied"
+        notes = payload.get("notes")
+
+        metadata_notes = []
+        if recruiter_name:
+            metadata_notes.append(f"Recruiter: {recruiter_name}")
+
+        platform_applied = payload.get("platform_applied") or payload.get("applied_via")
+        if platform_applied:
+            metadata_notes.append(f"Applied via: {platform_applied}")
+
+        message_badge = payload.get("message_badge")
+        if message_badge:
+            metadata_notes.append(f"Message type: {message_badge}")
+
+        if metadata_notes:
+            notes = "\n".join([note for note in [notes, *metadata_notes] if note]) or None
+
+        async with AsyncSessionLocal() as session:
+            campaign = ReferralCampaign(
+                user_id=user_id,
+                job_hash=job_hash,
+                company=company,
+                role=role,
+                job_link=job_link or "",
+                linkedin_profiles=linkedin_profiles,
+                referral_message=referral_message,
+                status=status_field,
+                notes=notes,
+            )
+
+            session.add(campaign)
+            await session.commit()
+
+            return {
+                "success": True,
+                "job_hash": job_hash,
+                "company": company,
+                "role": role,
+                "status": status_field
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in create_job: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete("/jobs/{job_hash}")
+async def delete_job(
+
+    job_hash: str,
+
+    user_id: int = Depends(
+        get_current_user_id
+    )
+):
+    try:
+        async with AsyncSessionLocal() as session:
+            query = select(ReferralCampaign).where(
+                ReferralCampaign.job_hash == job_hash,
+                ReferralCampaign.user_id == user_id
+            )
+
+            result = await session.execute(query)
+            job = result.scalar_one_or_none()
+
+            if not job:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+            await session.execute(
+                delete(ReferralCampaign).where(
+                    ReferralCampaign.job_hash == job_hash,
+                    ReferralCampaign.user_id == user_id,
+                )
+            )
+            await session.execute(
+                delete(JobAIResult).where(
+                    JobAIResult.job_hash == job_hash,
+                    JobAIResult.user_id == user_id,
+                )
+            )
+            await session.execute(
+                delete(RawJob).where(
+                    RawJob.job_hash == job_hash,
+                    RawJob.user_id == user_id,
+                )
+            )
+
+            await session.commit()
+
+            try:
+                await feed_manager.remove_feed_item(user_id=user_id, job_hash=job_hash)
+            except Exception as e:
+                logger.error(f"Failed to remove feed cache item: {e}")
+
+            return {"success": True, "job_hash": job_hash}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in delete_job: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
     
 

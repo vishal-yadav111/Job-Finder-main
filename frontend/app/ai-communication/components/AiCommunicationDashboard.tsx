@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Copy, Loader2, Sparkles, Wand2 } from "lucide-react";
+import { Loader2, Sparkles, Wand2 } from "lucide-react";
 
 import { ErrorBoundary } from "../../components/ErrorBoundary";
 import { EmptyState } from "../../components/ai-communication/EmptyState";
@@ -12,12 +12,12 @@ import { PromptSelector } from "../../components/ai-communication/PromptSelector
 import { ResponseCard } from "../../components/ai-communication/ResponseCard";
 import { SkeletonLoader } from "../../components/ai-communication/SkeletonLoader";
 import { useAICommunication } from "../hooks/useAICommunication";
-import type { AppliedVia, GenerateCommunicationPayload, ResponseType } from "../../types/aiCommunication";
+import type { AppliedVia, GenerateCommunicationPayload, ResponseType, ToneType } from "../../types/aiCommunication";
 
 const optionalAppliedVia = z.preprocess(
   (value) => (value === "" ? undefined : value),
   z.enum(["linkedin", "careers_page", "referral", "naukri", "indeed", "instahyre", "other"]).optional(),
-);
+) as z.ZodType<AppliedVia | undefined>;
 
 const optionalResponseType = z.preprocess(
   (value) => (value === "" ? undefined : value),
@@ -38,16 +38,17 @@ const optionalResponseType = z.preprocess(
     "referral_follow_up_message",
     "custom_response_type",
   ]).optional(),
-);
+) as z.ZodType<ResponseType | undefined>;
 
 const optionalTone = z.preprocess(
   (value) => (value === "" ? undefined : value),
   z.enum(["professional", "friendly", "confident", "concise"]).optional(),
-);
+) as z.ZodType<"professional" | "friendly" | "confident" | "concise" | undefined>;
 
 const schema = z.object({
   job_description: z.string().min(20, "Add a meaningful JD for better results"),
   company_name: z.string().optional(),
+    job_link: z.string().optional(),
   job_role: z.string().optional(),
   applied_via: optionalAppliedVia,
   recruiter_name: z.string().optional(),
@@ -58,6 +59,7 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
+type FormInputValues = z.input<typeof schema>;
 
 function buildPayload(values: FormValues): GenerateCommunicationPayload {
   return {
@@ -97,10 +99,11 @@ export function AiCommunicationDashboard() {
   const [toast, setToast] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(true);
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema) as any,
+  const form = useForm<FormInputValues, undefined, FormValues>({
+    resolver: zodResolver(schema),
     defaultValues: {
       company_name: "",
+      job_link: "",
       job_description: "",
       job_role: "",
       applied_via: undefined,
@@ -112,8 +115,9 @@ export function AiCommunicationDashboard() {
     },
   });
 
-  const appliedVia = form.watch("applied_via");
-    const responseType = form.watch("response_type") || "linkedin_connection_message";
+  const appliedVia = useWatch({ control: form.control, name: "applied_via" }) as AppliedVia | undefined;
+  const responseType = (useWatch({ control: form.control, name: "response_type" }) as ResponseType | undefined) || "linkedin_connection_message";
+  const tone = (useWatch({ control: form.control, name: "tone" }) as ToneType | undefined) || "professional";
   const responseTypes = useMemo(() => templates?.templates ?? [], [templates]);
   const smartBundle = useMemo(() => getSmartBundle(appliedVia || "other"), [appliedVia, getSmartBundle]);
 
@@ -201,6 +205,10 @@ export function AiCommunicationDashboard() {
                     <span>Job role (optional)</span>
                     <input {...form.register("job_role")} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 outline-none transition focus:border-emerald-400/40" />
                   </label>
+                  <label className="space-y-2 text-sm text-slate-200">
+                    <span>Job link (optional)</span>
+                    <input {...form.register("job_link")} className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 outline-none transition focus:border-emerald-400/40" />
+                  </label>
                 </div>
 
                 <label className="space-y-2 text-sm text-slate-200">
@@ -239,7 +247,7 @@ export function AiCommunicationDashboard() {
                 <PromptSelector
                   templates={responseTypes}
                   responseType={responseType}
-                  tone={form.watch("tone") || "professional"}
+                  tone={tone}
                   appliedVia={appliedVia || "other"}
                   onResponseTypeChange={(value) => form.setValue("response_type", value)}
                   onToneChange={(value) => form.setValue("tone", value)}
@@ -314,9 +322,18 @@ export function AiCommunicationDashboard() {
                       response={response}
                       isFavorite={favorites.includes(response.response_type)}
                       onCopy={handleCopy}
-                      onRegenerate={() => regenerate(buildPayload({ ...form.getValues(), response_type: response.response_type }))}
+                      onRegenerate={() => regenerate(buildPayload({ ...(form.getValues() as FormValues), response_type: response.response_type }))}
                       onFavorite={() => toggleFavorite(response.response_type)}
-                      onSave={() => saveResponse(response)}
+                      onSave={() => saveResponse(response, {
+                        company_name: form.getValues().company_name,
+                        job_role: form.getValues().job_role,
+                        job_link: form.getValues().job_link,
+                        recruiter_name: form.getValues().recruiter_name,
+                        applied_via: form.getValues().applied_via,
+                        platform_applied: form.getValues().applied_via,
+                        message_badge: response.response_type,
+                        status: "generated_applied",
+                      })}
                     />
                   ))}
                 </div>

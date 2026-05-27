@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { analyzeJD, fetchTemplates, generateAllCommunication, generateCommunication } from "../../lib/aiCommunicationApi";
+import { createReferral } from "../../lib/api";
 import type {
   AnalyzeJDResult,
   AppliedVia,
@@ -15,6 +16,69 @@ import type {
 
 const HISTORY_KEY = "ai-communication-history";
 const FAVORITES_KEY = "ai-communication-favorites";
+
+function extractFirstUrl(text?: string): string | undefined {
+  if (!text) return undefined;
+  const match = text.match(/https?:\/\/[^\s)\]]+/i);
+  return match?.[0]?.replace(/[.,;]+$/, "");
+}
+
+function extractCompanyName(jobDescription?: string): string | undefined {
+  if (!jobDescription) return undefined;
+
+  const patterns = [
+    /(?:company|organization|employer)\s*[:\-]\s*([A-Za-z0-9&.,()\-\s]{2,80})/i,
+    /(?:at|join|for)\s+([A-Z][A-Za-z0-9&.,()\-\s]{1,60})(?:\s+(?:as|to|for|is|are|seeks|seeking|looking))?/i,
+    /([A-Z][A-Za-z0-9&.,()\-]{1,40}(?:\s+[A-Z][A-Za-z0-9&.,()\-]{1,40}){0,3})\s+(?:is|are)\s+(?:hiring|looking|seeking)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = jobDescription.match(pattern);
+    const candidate = match?.[1]?.trim();
+    if (candidate && candidate.length >= 2) {
+      return candidate.replace(/\s+/g, " ");
+    }
+  }
+
+  return undefined;
+}
+
+function extractJobRole(jobDescription?: string): string | undefined {
+  if (!jobDescription) return undefined;
+
+  const patterns = [
+    /(?:job role|role|position|title)\s*[:\-]\s*([A-Za-z0-9&.,()\-/\s]{2,80})/i,
+    /(?:for the|for an?|as an?|as a)\s+([A-Za-z0-9&.,()\-/]{2,80})\s+(?:role|position|opening|opportunity)/i,
+    /we are hiring for\s+([A-Za-z0-9&.,()\-/\s]{2,80})/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = jobDescription.match(pattern);
+    const candidate = match?.[1]?.trim();
+    if (candidate && candidate.length >= 2) {
+      return candidate.replace(/\s+/g, " ");
+    }
+  }
+
+  return undefined;
+}
+
+function buildResolvedMetadata(meta?: Record<string, any>) {
+  const jobDescription = String(meta?.job_description || "").trim();
+  const explicitCompany = String(meta?.company_name || "").trim();
+  const explicitRole = String(meta?.job_role || "").trim();
+  const explicitLink = String(meta?.job_link || "").trim();
+
+  const extractedCompany = extractCompanyName(jobDescription);
+  const extractedRole = extractJobRole(jobDescription);
+  const extractedLink = extractFirstUrl(jobDescription);
+
+  const companyName = explicitCompany || extractedCompany || "Unknown Company";
+  const jobRole = explicitRole || extractedRole || "Software Developer";
+  const jobLink = explicitLink || extractedLink || undefined;
+
+  return { companyName, jobRole, jobLink };
+}
 
 export function getSmartBundle(appliedVia: AppliedVia, templates: TemplatesResult | null): ResponseType[] {
   if (templates?.smart_bundles?.[appliedVia]) {
@@ -76,8 +140,32 @@ export function useAICommunication() {
     setHistory((prev) => [item, ...prev.filter((entry) => entry.response_type !== item.response_type)].slice(0, 20));
   }, []);
 
-  const saveResponse = useCallback((item: ResponseItem) => {
+  const saveResponse = useCallback(async (item: ResponseItem, meta?: Record<string, any>) => {
     saveToHistory(item);
+
+    // Attempt to persist the generated response to the backend as a referral/application record
+    try {
+      const { companyName, jobRole, jobLink } = buildResolvedMetadata(meta);
+
+      const payload = {
+        company: companyName,
+        role: jobRole,
+        job_link: jobLink,
+        recruiter_name: meta?.recruiter_name || undefined,
+        linkedin_profiles: meta?.linkedin_profiles || [],
+        referral_message: item.generated_content,
+        status: meta?.status || "generated_applied",
+        platform_applied: meta?.platform_applied || meta?.applied_via || item.applied_via,
+        message_badge: meta?.message_badge || item.response_type,
+        notes: meta?.notes,
+      };
+
+      await createReferral(payload);
+    } catch (err) {
+      // Fail quietly — local history is still saved and UI remains responsive
+      console.error("Failed to persist referral record", err);
+    }
+
     return item;
   }, [saveToHistory]);
 
@@ -88,7 +176,7 @@ export function useAICommunication() {
       const result = await generateCommunication(payload);
       if (!result.success) throw new Error(result.error || "Generation failed");
       setResponses([result.data]);
-      saveResponse(result.data);
+      saveResponse(result.data, payload);
       return result.data;
     } catch (err: any) {
       setError(err?.message || "Failed to generate communication");
@@ -105,7 +193,7 @@ export function useAICommunication() {
       const result = await generateAllCommunication({ ...payload, response_types: responseTypes });
       if (!result.success) throw new Error(result.error || "Bundle generation failed");
       setResponses(result.data.responses);
-      result.data.responses.forEach(saveResponse);
+      result.data.responses.forEach((response) => saveResponse(response, payload));
       return result.data.responses;
     } catch (err: any) {
       setError(err?.message || "Failed to generate bundle");

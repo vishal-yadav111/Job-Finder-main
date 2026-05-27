@@ -106,6 +106,107 @@ export async function fetchJobsFeed(search: string = ""): Promise<ApiResponse> {
   }
 }
 
+export async function createReferral(payload: Record<string, any>): Promise<ApiResponse> {
+  try {
+    const accessToken = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const response = await fetch(`${API_BASE}/jobs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken && { "Authorization": `Bearer ${accessToken}` }),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Server returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error: any) {
+    console.error("API Error [createReferral]:", error);
+    return { success: false, error: error.message || "Failed to create referral entry" };
+  }
+}
+
+export async function updateReferral(jobHash: string, payload: Record<string, any>): Promise<ApiResponse> {
+  try {
+    const accessToken = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const response = await fetch(`${API_BASE}/jobs/${jobHash}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken && { "Authorization": `Bearer ${accessToken}` }),
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Server returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error: any) {
+    console.error("API Error [updateReferral]:", error);
+    return { success: false, error: error.message || "Failed to update referral entry" };
+  }
+}
+
+export async function deleteReferral(jobHash: string): Promise<ApiResponse> {
+  try {
+    const accessToken = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const response = await fetch(`${API_BASE}/jobs/${jobHash}`, {
+      method: "DELETE",
+      headers: {
+        ...(accessToken && { "Authorization": `Bearer ${accessToken}` }),
+      },
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Server returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error: any) {
+    console.error("API Error [deleteReferral]:", error);
+    return { success: false, error: error.message || "Failed to delete referral entry" };
+  }
+}
+
+export async function fetchReferrals(search = "", page = 1, limit = 100): Promise<ApiResponse> {
+  try {
+    const accessToken = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const params = new URLSearchParams({
+      ...(search && { search }),
+      page: String(page),
+      limit: String(limit),
+    });
+
+    const response = await fetch(`${API_BASE}/jobs?${params.toString()}`, {
+      method: "GET",
+      headers: {
+        ...(accessToken && { "Authorization": `Bearer ${accessToken}` }),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error: any) {
+    console.error("API Error [fetchReferrals]:", error);
+    return { success: false, error: error.message || "Failed to fetch referrals" };
+  }
+}
+
 /**
  * Safely authenticates user credentials with the backend identity router
  */

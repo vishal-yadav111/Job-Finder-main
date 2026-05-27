@@ -19,6 +19,7 @@ export function Header() {
           <Link href="/" className="text-sm text-slate-200 hover:text-emerald-300">Home</Link>
           <Link href="/ai-communication" className="text-sm text-slate-200 hover:text-emerald-300">AI Communication</Link>
           <Link href="/projects" className="text-sm text-slate-200 hover:text-emerald-300">Projects</Link>
+          <Link href="/outreach" className="text-sm text-slate-200 hover:text-emerald-300">Outreach</Link>
           <Link href="/about" className="text-sm text-slate-200 hover:text-emerald-300">About</Link>
           <Link href="/contact" className="text-sm text-slate-200 hover:text-emerald-300">Contact</Link>
         </nav>

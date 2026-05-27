@@ -171,4 +171,37 @@ class FeedManager:
             return False
 
 
+    async def remove_feed_item(
+
+        self,
+
+        user_id: int,
+
+        job_hash: str
+    ):
+        try:
+            if not redis_client:
+                return False
+
+            key = f"feed:user:{user_id}"
+            results = await redis_client.zrange(key, 0, -1)
+
+            for item in results:
+                try:
+                    payload = json.loads(item)
+                except json.JSONDecodeError:
+                    continue
+
+                if payload.get("job_hash") != job_hash:
+                    continue
+
+                await redis_client.zrem(key, item)
+                return True
+
+            return False
+        except Exception as e:
+            logger.error(f"FeedManager.remove_feed_item error: {e}")
+            return False
+
+
 feed_manager = FeedManager()
