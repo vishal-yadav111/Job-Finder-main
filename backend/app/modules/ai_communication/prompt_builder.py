@@ -64,7 +64,11 @@ Use the candidate profile below as the primary source of personal details.
 Use every available field from the profile when drafting the message.
 If profile data is missing, infer only from the JD and do not ask the user for more inputs.
 Do not invent experience, companies, education, or skills that are not supported by the JD or profile.
-Keep the output concise, professional, human, and tailored to the JD.
+Keep the output concise, human, and tailored to the JD.
+Write in this tone: {tone}.
+
+Important: the response type is only a writing context. Do not print the response type label, template name, JSON schema, headings, or any metadata inside the generated message.
+Write the actual message body only.
 
 Candidate profile:
 {build_profile_summary(profile)}
@@ -74,8 +78,7 @@ Output rules:
 - Never include markdown fences.
 - Never include filler like 'hope you're doing well'.
 - Keep the writing human and not AI-like.
-- Match the requested tone: {tone}.
-- Tailor the message to the template: {template_label}.
+- Tailor the message to the template context: {template_label}.
 - When only the JD is provided, infer company, role, skills, and outreach angle from the JD itself.
 - The final generated content must always have this exact structure:
     1. Greeting line: "Hi <name>," or "Hi," if no name is available.
@@ -86,6 +89,7 @@ Output rules:
     6. Details block with Job Link, Resume, Portfolio, Email, Contact, and Best Regards/sign-off.
 - Paragraph 1 and Paragraph 2 must be separate paragraphs.
 - Keep each paragraph natural and human.
+- Do not start the generated message with the template label, a title, or a JSON key.
 - Do not add any heading labels, bullets, or markdown outside the required details block.
 - The first paragraph must prioritize skills and experience from the profile block above and blend in the JD keywords.
 - For LinkedIn and WhatsApp, write a direct outreach message from the candidate to the recruiter/hiring manager, not a referral-request style note.
@@ -118,6 +122,7 @@ Context:
 - Hiring manager name: {hiring_manager_name}
 - Tone: {context.tone or 'professional'}
 - Response type key: {context.response_type}
+- Message style: direct candidate outreach, not a meta response or template heading.
 
 Job description:
 {context.job_description}
@@ -134,6 +139,7 @@ Rules:
 - For WhatsApp: use a compact conversational tone and direct outreach style.
 - For email: include a clear but brief opening and direct application intent.
 - For interview answers: sound confident and direct.
+- Follow the tone exactly: {context.tone or 'professional'}.
 - Avoid generic phrases, buzzwords, and verbose paragraphs.
 - Do not mention that the text was AI-generated.
 - After the two paragraphs, add the fixed sentence: I have added the necessary details below.
