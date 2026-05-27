@@ -77,16 +77,60 @@ function deriveCompanyFromUrl(url?: string): string | undefined {
   return undefined;
 }
 
+function buildLines(jobDescription: string): string[] {
+  return jobDescription
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => normalizeCandidate(line))
+    .filter(Boolean);
+}
+
+function isSectionLine(line: string, sectionName: string): boolean {
+  return new RegExp(`^${sectionName}$`, "i").test(line.trim());
+}
+
+function stripDecorativePrefix(line: string): string {
+  return normalizeCandidate(
+    line
+      .replace(/^avatar for\s+/i, "")
+      .replace(/\s+company logo$/i, "")
+      .replace(/^company logo\s*/i, "")
+      .replace(/^logo\s*/i, "")
+  );
+}
+
 export function extractCompanyName(jobDescription?: string): string | undefined {
   if (!jobDescription) return undefined;
 
-  const lines = jobDescription.replace(/\r/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = buildLines(jobDescription);
   const linePatterns = [
     /^(?:company name|company|organization|employer|hiring company|company profile)\s*[:\-]\s*(.+)$/i,
     /^(?:about|join|work at|at)\s+(.+?)(?:[.,;:!\-]|$)/i,
     /^(.+?)\s+(?:is|are)\s+(?:hiring|looking for|seeking)\b/i,
     /^(?:we at|our team at)\s+(.+?)(?:[.,;:!\-]|$)/i,
   ];
+
+  const aboutCompanyIndex = lines.findIndex((line) => isSectionLine(line, "About the company"));
+  if (aboutCompanyIndex >= 0) {
+    const sectionLines = lines.slice(aboutCompanyIndex + 1, aboutCompanyIndex + 8);
+    for (const line of sectionLines) {
+      const cleanedLine = stripDecorativePrefix(line);
+      if (!cleanedLine || /^(actively hiring|growing fast|company location|company size|company industries|employees?|save|share)$/i.test(cleanedLine)) {
+        continue;
+      }
+
+      for (const pattern of linePatterns) {
+        const candidate = normalizeCandidate(cleanedLine.match(pattern)?.[1] || "");
+        if (candidate && looksLikeCompanyName(candidate)) {
+          return candidate;
+        }
+      }
+
+      if (looksLikeCompanyName(cleanedLine)) {
+        return cleanedLine;
+      }
+    }
+  }
 
   for (const line of lines) {
     for (const pattern of linePatterns) {
@@ -103,11 +147,33 @@ export function extractCompanyName(jobDescription?: string): string | undefined 
 export function extractJobRole(jobDescription?: string): string | undefined {
   if (!jobDescription) return undefined;
 
+  const lines = buildLines(jobDescription);
+  const headerEndIndex = lines.findIndex((line) => isSectionLine(line, "About the job"));
+  const headerLines = headerEndIndex >= 0 ? lines.slice(0, headerEndIndex) : lines.slice(0, 12);
   const patterns = [
     /(?:job title|job role|role|position|title)\s*[:\-]\s*([A-Za-z0-9&.,()\-/\s]{2,80})/i,
     /(?:we are hiring for|hiring for|looking for|seeking)\s+(?:an?\s+)?([A-Za-z0-9&.,()\-/\s]{2,80}?)(?=\s+(?:role|position|opening|opportunity|at|in|for|to)\b|[.,;\n]|$)/i,
     /(?:for the|for an?|as an?|as a)\s+([A-Za-z0-9&.,()\-/\s]{2,80}?)\s+(?:role|position|opening|opportunity)\b/i,
   ];
+
+  for (const line of headerLines) {
+    const cleanedLine = stripDecorativePrefix(line);
+    if (!cleanedLine || /^(avatar|share|save|actively hiring|growing fast|\$|₹|posted:|job location|remote work policy|visa sponsorship|relocation|skills|about the company)$/i.test(cleanedLine)) {
+      continue;
+    }
+
+    for (const pattern of patterns) {
+      const match = cleanedLine.match(pattern);
+      const candidate = normalizeCandidate(match?.[1] || "");
+      if (candidate) {
+        return candidate;
+      }
+    }
+
+    if (/(developer|engineer|scientist|manager|architect|analyst|consultant|specialist|lead|designer|administrator|tester|intern|associate|officer|executive|developer|full stack|front end|backend|backend|mern|react|node)/i.test(cleanedLine) && cleanedLine.length <= 80) {
+      return cleanedLine;
+    }
+  }
 
   for (const pattern of patterns) {
     const match = jobDescription.match(pattern);
@@ -229,12 +295,10 @@ export function useAICommunication() {
 
     // Attempt to persist the generated response to the backend as a referral/application record
     try {
-      const { companyName, jobRole, jobLink } = buildResolvedMetadata(meta);
-
       const payload = {
-        company: companyName,
-        role: jobRole,
-        job_link: jobLink,
+        company: meta?.company_name?.trim() || "",
+        role: meta?.job_role?.trim() || "",
+        job_link: meta?.job_link?.trim() || undefined,
         recruiter_name: meta?.recruiter_name || undefined,
         linkedin_profiles: meta?.linkedin_profiles || [],
         referral_message: item.generated_content,

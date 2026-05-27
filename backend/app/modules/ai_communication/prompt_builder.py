@@ -192,6 +192,9 @@ Analyze the following job description and return:
 - keywords
 - experience_level
 - suggested_improvements
+- company_name
+- job_role
+- job_link
 
 Job role: {role_line}
 
@@ -203,7 +206,10 @@ Return JSON in this shape:
   "skills": ["..."],
   "keywords": ["..."],
   "experience_level": "0-1 years | 1-3 years | 3+ years | unknown",
-  "suggested_improvements": ["..."]
+    "suggested_improvements": ["..."],
+    "company_name": "...",
+    "job_role": "...",
+    "job_link": "..."
 }}
 """.strip()
 

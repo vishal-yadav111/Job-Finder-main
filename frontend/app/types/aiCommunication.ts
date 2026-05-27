@@ -54,6 +54,9 @@ export interface AnalyzeJDResult {
   keywords: string[];
   experience_level: string;
   suggested_improvements: string[];
+  company_name?: string | null;
+  job_role?: string | null;
+  job_link?: string | null;
 }
 
 export interface TemplatesResult {

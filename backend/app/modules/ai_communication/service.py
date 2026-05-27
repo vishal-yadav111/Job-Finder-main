@@ -169,6 +169,9 @@ class AiCommunicationService:
             keywords=normalize_text_list(raw_output.get("keywords")),
             experience_level=str(raw_output.get("experience_level", "unknown")),
             suggested_improvements=normalize_text_list(raw_output.get("suggested_improvements")),
+            company_name=str(raw_output.get("company_name") or "").strip() or None,
+            job_role=str(raw_output.get("job_role") or "").strip() or None,
+            job_link=str(raw_output.get("job_link") or "").strip() or None,
         )
 
     def list_templates(self) -> TemplatesData:

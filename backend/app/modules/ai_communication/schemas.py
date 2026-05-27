@@ -93,6 +93,9 @@ class AnalyzeJDData(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     experience_level: str = "unknown"
     suggested_improvements: list[str] = Field(default_factory=list)
+    company_name: str | None = None
+    job_role: str | None = None
+    job_link: str | None = None
 
 
 class AnalyzeJDEnvelope(BaseModel):

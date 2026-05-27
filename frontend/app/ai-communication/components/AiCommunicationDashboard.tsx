@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -11,7 +11,7 @@ import { EmptyState } from "../../components/ai-communication/EmptyState";
 import { PromptSelector } from "../../components/ai-communication/PromptSelector";
 import { ResponseCard } from "../../components/ai-communication/ResponseCard";
 import { SkeletonLoader } from "../../components/ai-communication/SkeletonLoader";
-import { buildResolvedMetadata, useAICommunication } from "../hooks/useAICommunication";
+import { useAICommunication } from "../hooks/useAICommunication";
 import type { AppliedVia, GenerateCommunicationPayload, ResponseType, ToneType } from "../../types/aiCommunication";
 
 const optionalAppliedVia = z.preprocess(
@@ -121,27 +121,39 @@ export function AiCommunicationDashboard() {
   const jobDescription = useWatch({ control: form.control, name: "job_description" }) as string;
   const responseTypes = useMemo(() => templates?.templates ?? [], [templates]);
   const smartBundle = useMemo(() => getSmartBundle(appliedVia || "other"), [appliedVia, getSmartBundle]);
-  const inferredJobData = useMemo(() => buildResolvedMetadata({ job_description: jobDescription }), [jobDescription]);
+  const lastAnalyzedJobDescription = useRef<string>("");
 
   useEffect(() => {
     if (!jobDescription || jobDescription.trim().length < 20) return;
+    if (lastAnalyzedJobDescription.current === jobDescription.trim()) return;
 
-    const currentCompany = String(form.getValues("company_name") || "").trim();
-    const currentRole = String(form.getValues("job_role") || "").trim();
-    const currentLink = String(form.getValues("job_link") || "").trim();
+    const timer = window.setTimeout(async () => {
+      try {
+        const currentCompany = String(form.getValues("company_name") || "").trim();
+        const currentRole = String(form.getValues("job_role") || "").trim();
+        const currentLink = String(form.getValues("job_link") || "").trim();
 
-    if (!currentCompany && inferredJobData.companyName && inferredJobData.companyName !== "Unknown Company") {
-      form.setValue("company_name", inferredJobData.companyName, { shouldDirty: false, shouldTouch: false });
-    }
+        const analysisResult = await analyze(jobDescription, currentRole || undefined);
+        lastAnalyzedJobDescription.current = jobDescription.trim();
 
-    if (!currentRole && inferredJobData.jobRole && inferredJobData.jobRole !== "Software Developer") {
-      form.setValue("job_role", inferredJobData.jobRole, { shouldDirty: false, shouldTouch: false });
-    }
+        if (!currentCompany && analysisResult?.company_name) {
+          form.setValue("company_name", analysisResult.company_name, { shouldDirty: false, shouldTouch: false });
+        }
 
-    if (!currentLink && inferredJobData.jobLink) {
-      form.setValue("job_link", inferredJobData.jobLink, { shouldDirty: false, shouldTouch: false });
-    }
-  }, [form, inferredJobData.companyName, inferredJobData.jobLink, inferredJobData.jobRole, jobDescription]);
+        if (!currentRole && analysisResult?.job_role) {
+          form.setValue("job_role", analysisResult.job_role, { shouldDirty: false, shouldTouch: false });
+        }
+
+        if (!currentLink && analysisResult?.job_link) {
+          form.setValue("job_link", analysisResult.job_link, { shouldDirty: false, shouldTouch: false });
+        }
+      } catch {
+        // Ignore transient model failures; the user can still generate manually.
+      }
+    }, 700);
+
+    return () => window.clearTimeout(timer);
+  }, [analyze, form, jobDescription]);
 
   const setTheme = (value: boolean) => {
     setDarkMode(value);
