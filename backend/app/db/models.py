@@ -317,6 +317,7 @@ class LinkedinProfile(Base):
     )
 
     current_role: Mapped[str] = mapped_column(
+        "role_name",
         String,
         nullable=True
     )
