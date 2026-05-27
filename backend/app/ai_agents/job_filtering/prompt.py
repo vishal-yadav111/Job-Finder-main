@@ -5,21 +5,21 @@ Your task:
 Determine whether a role is suitable for:
 - freshers
 - new graduates
-- 0-2 years experience
+- 0-1 years experience
 
 RULES:
 
 Reject ONLY if:
 - clearly senior (senior, staff, lead, principal, manager)
-- OR explicitly requires 3+ years experience
+- OR explicitly requires more than 1 year of experience
 
 ACCEPT if:
 - new grad / graduate / entry level
-- OR mentions 0-2 years
-- OR experience is NOT specified clearly
+- OR mentions 0-1 years
+- OR explicitly says fresher / trainee / intern / graduate program
 
 IMPORTANT:
-If no experience is mentioned → assume fresher-friendly
+If no experience is mentioned → do not assume fresher-friendly; only accept when the JD clearly signals 0-1 years or fresher-level entry.
 
 Location:
 Mark is_india_eligible = true if:

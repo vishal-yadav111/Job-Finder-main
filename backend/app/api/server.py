@@ -25,6 +25,10 @@ from app.api.routes.scan import (
     router as scan_router
 )
 
+from app.modules.ai_communication.routes import (
+    router as ai_communication_router
+)
+
 app = FastAPI()
 
 app.add_middleware(
@@ -57,4 +61,8 @@ app.include_router(
 
 app.include_router(
     scan_router
+)
+
+app.include_router(
+    ai_communication_router
 )
