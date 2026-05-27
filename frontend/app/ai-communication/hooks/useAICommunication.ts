@@ -6,30 +6,107 @@ import { createReferral } from "../../lib/api";
 import type {
   AnalyzeJDResult,
   AppliedVia,
-  CommunicationTemplate,
   GenerateCommunicationPayload,
   ResponseItem,
   ResponseType,
-  ToneType,
   TemplatesResult,
 } from "../../types/aiCommunication";
 
 const HISTORY_KEY = "ai-communication-history";
 const FAVORITES_KEY = "ai-communication-favorites";
 
-function extractFirstUrl(text?: string): string | undefined {
+export function extractFirstUrl(text?: string): string | undefined {
   if (!text) return undefined;
   const match = text.match(/https?:\/\/[^\s)\]]+/i);
   return match?.[0]?.replace(/[.,;]+$/, "");
 }
 
-function extractCompanyName(jobDescription?: string): string | undefined {
+function normalizeCandidate(value: string): string {
+  return value.replace(/\s+/g, " ").replace(/^["'“”‘’(<\[]+|["'“”‘’)>\].,;:!]+$/g, "").trim();
+}
+
+function titleCaseSlug(value: string): string {
+  return value
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(" ");
+}
+
+function looksLikeCompanyName(value: string): boolean {
+  const candidate = normalizeCandidate(value);
+  if (candidate.length < 2 || candidate.length > 80) return false;
+  if (!/[A-Za-z]/.test(candidate)) return false;
+
+  const rejectedTerms = /(software|engineer|developer|manager|architect|analyst|intern|associate|specialist|lead|principal|senior|junior|remote|hybrid|full[- ]time|part[- ]time|contract|salary|compensation|responsibilities|requirements|overview|description|position|role|job|apply|team|department|company|organization|employer|about|hiring)/i;
+  return !rejectedTerms.test(candidate);
+}
+
+function deriveCompanyFromUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./i, "");
+    const genericDomains = new Set(["com", "co", "io", "net", "org", "in", "jobs", "careers", "hire", "app"]);
+    const hostParts = host.split(".").filter(Boolean);
+    const subdomain = hostParts.length > 2 ? hostParts[0] : "";
+    const hostBase = hostParts.length >= 2 ? hostParts[hostParts.length - 2] : "";
+
+    if (host.includes("lever.co") || host.includes("greenhouse.io") || host.includes("ashbyhq.com") || host.includes("workday.com")) {
+      const pathParts = parsed.pathname.split("/").filter(Boolean).map((segment) => segment.trim()).filter(Boolean);
+      const candidate = pathParts.find((segment) => !genericDomains.has(segment.toLowerCase()) && !/^(jobs?|job-boards?|apply|careers?)$/i.test(segment));
+      if (candidate && looksLikeCompanyName(candidate)) {
+        return titleCaseSlug(candidate);
+      }
+    }
+
+    if (subdomain && !genericDomains.has(subdomain.toLowerCase()) && looksLikeCompanyName(subdomain)) {
+      return titleCaseSlug(subdomain);
+    }
+
+    if (hostBase && !genericDomains.has(hostBase.toLowerCase()) && looksLikeCompanyName(hostBase)) {
+      return titleCaseSlug(hostBase);
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+export function extractCompanyName(jobDescription?: string): string | undefined {
+  if (!jobDescription) return undefined;
+
+  const lines = jobDescription.replace(/\r/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean);
+  const linePatterns = [
+    /^(?:company name|company|organization|employer|hiring company|company profile)\s*[:\-]\s*(.+)$/i,
+    /^(?:about|join|work at|at)\s+(.+?)(?:[.,;:!\-]|$)/i,
+    /^(.+?)\s+(?:is|are)\s+(?:hiring|looking for|seeking)\b/i,
+    /^(?:we at|our team at)\s+(.+?)(?:[.,;:!\-]|$)/i,
+  ];
+
+  for (const line of lines) {
+    for (const pattern of linePatterns) {
+      const candidate = normalizeCandidate(line.match(pattern)?.[1] || "");
+      if (candidate && looksLikeCompanyName(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function extractJobRole(jobDescription?: string): string | undefined {
   if (!jobDescription) return undefined;
 
   const patterns = [
-    /(?:company|organization|employer)\s*[:\-]\s*([A-Za-z0-9&.,()\-\s]{2,80})/i,
-    /(?:at|join|for)\s+([A-Z][A-Za-z0-9&.,()\-\s]{1,60})(?:\s+(?:as|to|for|is|are|seeks|seeking|looking))?/i,
-    /([A-Z][A-Za-z0-9&.,()\-]{1,40}(?:\s+[A-Z][A-Za-z0-9&.,()\-]{1,40}){0,3})\s+(?:is|are)\s+(?:hiring|looking|seeking)/i,
+    /(?:job title|job role|role|position|title)\s*[:\-]\s*([A-Za-z0-9&.,()\-/\s]{2,80})/i,
+    /(?:we are hiring for|hiring for|looking for|seeking)\s+(?:an?\s+)?([A-Za-z0-9&.,()\-/\s]{2,80}?)(?=\s+(?:role|position|opening|opportunity|at|in|for|to)\b|[.,;\n]|$)/i,
+    /(?:for the|for an?|as an?|as a)\s+([A-Za-z0-9&.,()\-/\s]{2,80}?)\s+(?:role|position|opening|opportunity)\b/i,
   ];
 
   for (const pattern of patterns) {
@@ -43,27 +120,25 @@ function extractCompanyName(jobDescription?: string): string | undefined {
   return undefined;
 }
 
-function extractJobRole(jobDescription?: string): string | undefined {
-  if (!jobDescription) return undefined;
+type SaveResponseMeta = {
+  company_name?: string;
+  job_role?: string;
+  job_description?: string;
+  job_link?: string;
+  recruiter_name?: string;
+  linkedin_profiles?: unknown[];
+  status?: string;
+  platform_applied?: string;
+  applied_via?: string;
+  message_badge?: string;
+  notes?: string;
+};
 
-  const patterns = [
-    /(?:job role|role|position|title)\s*[:\-]\s*([A-Za-z0-9&.,()\-/\s]{2,80})/i,
-    /(?:for the|for an?|as an?|as a)\s+([A-Za-z0-9&.,()\-/]{2,80})\s+(?:role|position|opening|opportunity)/i,
-    /we are hiring for\s+([A-Za-z0-9&.,()\-/\s]{2,80})/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = jobDescription.match(pattern);
-    const candidate = match?.[1]?.trim();
-    if (candidate && candidate.length >= 2) {
-      return candidate.replace(/\s+/g, " ");
-    }
-  }
-
-  return undefined;
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-function buildResolvedMetadata(meta?: Record<string, any>) {
+export function buildResolvedMetadata(meta?: SaveResponseMeta) {
   const jobDescription = String(meta?.job_description || "").trim();
   const explicitCompany = String(meta?.company_name || "").trim();
   const explicitRole = String(meta?.job_role || "").trim();
@@ -72,8 +147,9 @@ function buildResolvedMetadata(meta?: Record<string, any>) {
   const extractedCompany = extractCompanyName(jobDescription);
   const extractedRole = extractJobRole(jobDescription);
   const extractedLink = extractFirstUrl(jobDescription);
+  const linkedCompany = deriveCompanyFromUrl(explicitLink || extractedLink);
 
-  const companyName = explicitCompany || extractedCompany || "Unknown Company";
+  const companyName = explicitCompany || extractedCompany || linkedCompany || "Unknown Company";
   const jobRole = explicitRole || extractedRole || "Software Developer";
   const jobLink = explicitLink || extractedLink || undefined;
 
@@ -104,8 +180,24 @@ export function useAICommunication() {
   const [templates, setTemplates] = useState<TemplatesResult | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeJDResult | null>(null);
   const [responses, setResponses] = useState<ResponseItem[]>([]);
-  const [history, setHistory] = useState<ResponseItem[]>([]);
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const [history, setHistory] = useState<ResponseItem[]>(() => {
+    try {
+      if (typeof window === "undefined") return [];
+      const storedHistory = localStorage.getItem(HISTORY_KEY);
+      return storedHistory ? JSON.parse(storedHistory) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    try {
+      if (typeof window === "undefined") return [];
+      const storedFavorites = localStorage.getItem(FAVORITES_KEY);
+      return storedFavorites ? JSON.parse(storedFavorites) : [];
+    } catch {
+      return [];
+    }
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,14 +209,6 @@ export function useAICommunication() {
       }
     }).catch(() => undefined);
 
-    try {
-      const storedHistory = localStorage.getItem(HISTORY_KEY);
-      const storedFavorites = localStorage.getItem(FAVORITES_KEY);
-      if (storedHistory) setHistory(JSON.parse(storedHistory));
-      if (storedFavorites) setFavorites(JSON.parse(storedFavorites));
-    } catch {
-      // localStorage is optional; ignore parse failures.
-    }
   }, []);
 
   useEffect(() => {
@@ -140,7 +224,7 @@ export function useAICommunication() {
     setHistory((prev) => [item, ...prev.filter((entry) => entry.response_type !== item.response_type)].slice(0, 20));
   }, []);
 
-  const saveResponse = useCallback(async (item: ResponseItem, meta?: Record<string, any>) => {
+  const saveResponse = useCallback(async (item: ResponseItem, meta?: SaveResponseMeta) => {
     saveToHistory(item);
 
     // Attempt to persist the generated response to the backend as a referral/application record
@@ -161,7 +245,7 @@ export function useAICommunication() {
       };
 
       await createReferral(payload);
-    } catch (err) {
+    } catch (err: unknown) {
       // Fail quietly — local history is still saved and UI remains responsive
       console.error("Failed to persist referral record", err);
     }
@@ -178,13 +262,13 @@ export function useAICommunication() {
       setResponses([result.data]);
       saveResponse(result.data, payload);
       return result.data;
-    } catch (err: any) {
-      setError(err?.message || "Failed to generate communication");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err) || "Failed to generate communication");
       throw err;
     } finally {
       setIsLoading(false);
     }
-  }, [saveToHistory]);
+  }, [saveResponse]);
 
   const generateBundle = useCallback(async (payload: GenerateCommunicationPayload, responseTypes?: ResponseType[]) => {
     setError(null);
@@ -195,13 +279,13 @@ export function useAICommunication() {
       setResponses(result.data.responses);
       result.data.responses.forEach((response) => saveResponse(response, payload));
       return result.data.responses;
-    } catch (err: any) {
-      setError(err?.message || "Failed to generate bundle");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err) || "Failed to generate bundle");
       throw err;
     } finally {
       setIsLoading(false);
     }
-  }, [saveToHistory]);
+  }, [saveResponse]);
 
   const analyze = useCallback(async (job_description: string, job_role?: string) => {
     setError(null);
@@ -211,8 +295,8 @@ export function useAICommunication() {
       if (!result.success) throw new Error(result.error || "JD analysis failed");
       setAnalysis(result.data);
       return result.data;
-    } catch (err: any) {
-      setError(err?.message || "Failed to analyze JD");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err) || "Failed to analyze JD");
       throw err;
     } finally {
       setIsAnalyzing(false);

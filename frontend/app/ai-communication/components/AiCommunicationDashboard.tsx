@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -11,7 +11,7 @@ import { EmptyState } from "../../components/ai-communication/EmptyState";
 import { PromptSelector } from "../../components/ai-communication/PromptSelector";
 import { ResponseCard } from "../../components/ai-communication/ResponseCard";
 import { SkeletonLoader } from "../../components/ai-communication/SkeletonLoader";
-import { useAICommunication } from "../hooks/useAICommunication";
+import { buildResolvedMetadata, useAICommunication } from "../hooks/useAICommunication";
 import type { AppliedVia, GenerateCommunicationPayload, ResponseType, ToneType } from "../../types/aiCommunication";
 
 const optionalAppliedVia = z.preprocess(
@@ -118,8 +118,30 @@ export function AiCommunicationDashboard() {
   const appliedVia = useWatch({ control: form.control, name: "applied_via" }) as AppliedVia | undefined;
   const responseType = (useWatch({ control: form.control, name: "response_type" }) as ResponseType | undefined) || "linkedin_connection_message";
   const tone = (useWatch({ control: form.control, name: "tone" }) as ToneType | undefined) || "professional";
+  const jobDescription = useWatch({ control: form.control, name: "job_description" }) as string;
   const responseTypes = useMemo(() => templates?.templates ?? [], [templates]);
   const smartBundle = useMemo(() => getSmartBundle(appliedVia || "other"), [appliedVia, getSmartBundle]);
+  const inferredJobData = useMemo(() => buildResolvedMetadata({ job_description: jobDescription }), [jobDescription]);
+
+  useEffect(() => {
+    if (!jobDescription || jobDescription.trim().length < 20) return;
+
+    const currentCompany = String(form.getValues("company_name") || "").trim();
+    const currentRole = String(form.getValues("job_role") || "").trim();
+    const currentLink = String(form.getValues("job_link") || "").trim();
+
+    if (!currentCompany && inferredJobData.companyName && inferredJobData.companyName !== "Unknown Company") {
+      form.setValue("company_name", inferredJobData.companyName, { shouldDirty: false, shouldTouch: false });
+    }
+
+    if (!currentRole && inferredJobData.jobRole && inferredJobData.jobRole !== "Software Developer") {
+      form.setValue("job_role", inferredJobData.jobRole, { shouldDirty: false, shouldTouch: false });
+    }
+
+    if (!currentLink && inferredJobData.jobLink) {
+      form.setValue("job_link", inferredJobData.jobLink, { shouldDirty: false, shouldTouch: false });
+    }
+  }, [form, inferredJobData.companyName, inferredJobData.jobLink, inferredJobData.jobRole, jobDescription]);
 
   const setTheme = (value: boolean) => {
     setDarkMode(value);
@@ -328,9 +350,10 @@ export function AiCommunicationDashboard() {
                         company_name: form.getValues().company_name,
                         job_role: form.getValues().job_role,
                         job_link: form.getValues().job_link,
+                        job_description: form.getValues("job_description"),
                         recruiter_name: form.getValues().recruiter_name,
-                        applied_via: form.getValues().applied_via,
-                        platform_applied: form.getValues().applied_via,
+                        applied_via: form.getValues("applied_via") as AppliedVia | undefined,
+                        platform_applied: form.getValues("applied_via") as AppliedVia | undefined,
                         message_badge: response.response_type,
                         status: "generated_applied",
                       })}
